@@ -1,0 +1,35 @@
+Update package lists:
+
+sql
+Copy code
+sudo apt update
+Install Python 3 and pip:
+
+Copy code
+sudo apt install python3 python3-pip
+Install PostgreSQL (if you haven't already):
+
+Copy code
+sudo apt install postgresql
+Install Nginx (if you haven't already):
+
+Copy code
+sudo apt install nginx
+Set up a virtual environment (optional but recommended):
+
+bash
+Copy code
+sudo apt install python3-venv
+python3 -m venv venv
+source venv/bin/activate
+Navigate to your project directory:
+
+bash
+Copy code
+cd /path/to/your/project
+Install project dependencies from the requirements.txt file:
+
+Copy code
+pip install -r requirements.txt
+These commands will install Python, pip, PostgreSQL, Nginx, and set up a virtual environment (if chosen) with the necessary packages for your Django project.
+
