@@ -1,87 +1,171 @@
-# Django Project with Gunicorn, Nginx, and PostgreSQL
+Below is the completed documentation based on the provided commands:
 
-This is a Django project template that demonstrates how to deploy a Django application using Gunicorn as the application server, Nginx as the reverse proxy server, and PostgreSQL as the database backend.
+## Documentation: Deploying Django Application with Gunicorn and OpenLiteSpeed
 
-## Project Structure
+### Step 1: Install OpenLiteSpeed
 
-The project structure is as follows:
+Add the OpenLiteSpeed repository and install OpenLiteSpeed:
 
-myproject/
-├── myapp/
-│ ├── ...
-│ ├── ...
-├── myproject/
-│ ├── settings/
-│ │ ├── init.py
-│ │ ├── base.py
-│ │ ├── dev.py
-│ │ ├── prod.py
-│ │ └── test.py
-│ ├── init.py
-│ ├── urls.py
-│ └── wsgi.py
-├── gunicorn.conf.py
-└── nginx/
-└── myproject.conf
-pip install -r requirements.txt
-- `myapp/`: Contains your Django app code.
-- `myproject/`: Contains the project-level code and settings.
-- `myproject/settings/`: Contains environment-specific settings files.
-- `gunicorn.conf.py`: Gunicorn server configuration file.
-- `nginx/`: Contains Nginx configuration file(s).
+```bash
+sudo wget -O - http://rpms.litespeedtech.com/debian/enable_lst_debain_repo.sh | sudo bash
+sudo apt update
+sudo apt install openlitespeed
+```
 
-## Usage
+Start OpenLiteSpeed service:
 
-### Development
+```bash
+sudo systemctl start lsws
+```
 
-1. Create and activate a virtual environment (optional).
+### Step 2: Set Up the Environment
 
-2. Install the project dependencies:
+Install required dependencies:
 
-3. Start the Django development server:
-python manage.py runserver --settings=myproject.settings.dev
+```bash
+sudo apt install build-essential python3-dev python3-pip python3-virtualenv
+```
 
-4. Access the application at `http://localhost:8000/hello/`.
+Create the Django project and virtual environment:
 
-### Production
+```bash
+sudo mkdir -p /var/www/html/
+cd /var/www/html/
+django-admin startproject demo
+virtualenv -p python3 --system-site-packages /var/www/html/demo/
+```
 
-1. Install Gunicorn and Nginx (if not installed).
+### Step 3: Install Gunicorn and Django
 
-2. Create and activate a virtual environment (optional).
+Install Gunicorn and Django inside the virtual environment:
 
-3. Install the project dependencies:
-pip install -r requirements.txt
+```bash
+source /var/www/html/demo/bin/activate
+pip install gunicorn django
+```
 
-4. Configure PostgreSQL:
-- Create a PostgreSQL database and update the database settings in `myproject/settings/prod.py`.
+### Step 4: Configure Gunicorn
 
-5. Update the Nginx configuration:
-- Update the IP address and domain in `myproject.conf` inside the `nginx/` directory.
-- Copy the `myproject.conf` file to the appropriate Nginx configuration directory (e.g., `/etc/nginx/conf.d/`).
+Create a Gunicorn service file:
 
-6. Start the Gunicorn server:
-gunicorn myproject.wsgi:application -c gunicorn.conf.py --settings=myproject.settings.prod
+```bash
+sudo nano /etc/systemd/system/gunicorn.service
+```
 
-7. Restart Nginx:
-sudo service nginx restart
+Add the following configuration:
 
-8. Access the application at `http://your_domain.com/hello/`.
+```plaintext
+[Unit]
+Description=Gunicorn daemon for Django project
+Requires=gunicorn.socket
+After=network.target
 
-### Testing
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/var/www/html/demo
+ExecStart=/home/ubuntu/.local/bin/gunicorn demo.wsgi:application --bind unix:/var/www/demo.sock
 
-1. Create and activate a virtual environment (optional).
+[Install]
+WantedBy=multi-user.target
+```
 
-2. Install the project dependencies:
-python manage.py test --settings=myproject.settings.test
+### Step 5: Configure OpenLiteSpeed
 
-## Configuration
+Compile and install the WSGI LSAPI module for OpenLiteSpeed:
 
-- Database: PostgreSQL is used as the database backend. Update the database settings in the respective environment-specific settings file (`myproject/settings/dev.py`, `myproject/settings/prod.py`, `myproject/settings/test.py`).
+```bash
+curl -O http://www.litespeedtech.com/packages/lsapi/wsgi-lsapi-1.6.tgz
+tar xf wsgi-lsapi-1.6.tgz
+cd wsgi-lsapi-1.6
+python3 ./configure.py
+make
+sudo cp lswsgi /usr/local/lsws/fcgi-bin/
+```
 
-- Gunicorn: The Gunicorn server configuration is defined in `gunicorn.conf.py`.
+Set up the admin password for OpenLiteSpeed:
 
-- Nginx: The Nginx server block configuration is defined in `myproject.conf` inside the `nginx/` directory.
+```bash
+/usr/local/lsws/admin/misc/admpass.sh
+```
 
+### Step 6: Configure OpenLiteSpeed Virtual Host
 
+Create a context for the Django application:
 
+- Access OpenLiteSpeed Web Admin at `http://your_server_ip:7080`
+- Navigate to `Virtual Hosts` > `Context` > `Add`
+- Configure the context with the following details:
+  - Type: App Server
+  - URI: /
+  - Location: `/usr/local/lsws/Example/html/demo/`
+  - Binary Path: `/usr/local/lsws/fcgi-bin/lswsgi`
+  - Application Type: WSGI
+  - Startup File: `demo/wsgi.py`
+  - Environment:
+    ```
+    PYTHONPATH=/usr/local/lsws/Example/html/lib/python3.8:/usr/local/lsws/Example/html/demo
+    LS_PYTHONBIN=/usr/local/lsws/Example/html/bin/python
+    ```
 
+### Step 7: Configure OpenLiteSpeed Virtual Host for SSL (optional)
+
+If you want to enable SSL for your domain, add the SSL configuration to the virtual host:
+
+```plaintext
+<virtualHost example.com:443>
+    vhRoot                  /var/www/html/demo
+    docRoot                 $VH_ROOT
+    enableGzip              1
+
+    rewrite  {
+        enable              1
+        autoLoadHtaccess    1
+    }
+
+    context / {
+        type                proxy
+        location            http://unix:/var/www/demo.sock|uwsgi://
+        proxyPass           http://unix:/var/www/demo.sock|uwsgi://
+        proxyPassReverse    http://unix:/var/www/demo.sock|uwsgi://
+        allowBrowse         1
+        addDefaultCharset   utf-8
+    }
+
+    ssl                     1
+    keyFile                 /path/to/ssl/private_key.pem
+    certFile                /path/to/ssl/certificate.pem
+</virtualHost>
+```
+
+### Step 8: Restart OpenLiteSpeed
+
+Restart OpenLiteSpeed to apply the changes:
+
+```bash
+sudo systemctl restart lsws
+```
+
+### Step 9: Start Gunicorn
+
+Start Gunicorn service:
+
+```bash
+sudo systemctl start gunicorn
+```
+
+Enable Gunicorn to start on boot:
+
+```bash
+sudo systemctl enable gunicorn
+```
+
+### Step 10: Final Testing
+
+Access your Django application in a web browser by entering your domain name or IP address.
+
+## Conclusion
+
+You have successfully deployed a Django application with Gunicorn and OpenLiteSpeed. You can now host and manage your Django application with the power and efficiency of OpenLiteSpeed web server.
+
+Please let me know if you have any further instructions or additional steps to add to the documentation.
